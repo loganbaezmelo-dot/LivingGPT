@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>LivingGPT - Autonomous Agent Engine</title>
   <style>
     * {
@@ -12,35 +12,48 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
-    body {
+    html, body {
+      height: 100%;
+      height: 100dvh;
       background-color: #0b0f19;
       color: #f8fafc;
+      overflow: hidden;
+    }
+
+    body {
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
     }
 
     .agent-container {
       width: 100%;
       max-width: 900px;
-      height: 92vh;
+      height: 100%;
+      height: 100dvh;
       background: #111827;
-      border-radius: 12px;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-      overflow: hidden;
       border: 1px solid #1f2937;
+      position: relative;
+    }
+
+    @media (min-width: 768px) {
+      .agent-container {
+        height: 90vh;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      }
     }
 
     .header {
-      padding: 16px 20px;
+      padding: 14px 18px;
       background: #0f172a;
       border-bottom: 1px solid #1f2937;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-shrink: 0;
     }
 
     .agent-info {
@@ -55,6 +68,7 @@
       background-color: #22c55e;
       border-radius: 50%;
       box-shadow: 0 0 8px #22c55e;
+      flex-shrink: 0;
     }
 
     .status-dot.busy {
@@ -64,18 +78,20 @@
 
     .chat-box {
       flex: 1;
-      padding: 20px;
+      min-height: 0;
+      padding: 16px;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
     }
 
     .message {
-      max-width: 82%;
-      padding: 12px 16px;
+      max-width: 88%;
+      padding: 12px 14px;
       border-radius: 10px;
-      line-height: 1.5;
+      line-height: 1.4;
       font-size: 14px;
       word-break: break-word;
     }
@@ -94,13 +110,13 @@
     }
 
     .thought-bubble {
-      max-width: 85%;
+      max-width: 90%;
       align-self: flex-start;
       background: #182234;
       border-left: 3px solid #60a5fa;
-      padding: 10px 14px;
+      padding: 8px 12px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12px;
       color: #93c5fd;
       font-family: monospace;
     }
@@ -114,8 +130,9 @@
       padding: 8px 12px;
       border-radius: 4px;
       color: #cbd5e1;
-      max-width: 85%;
+      max-width: 90%;
       align-self: flex-start;
+      word-break: break-all;
     }
 
     .tool-call.result {
@@ -124,16 +141,19 @@
     }
 
     .input-area {
-      padding: 16px 20px;
+      padding: 12px 16px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
       background: #0f172a;
       border-top: 1px solid #1f2937;
       display: flex;
-      gap: 10px;
+      gap: 8px;
+      flex-shrink: 0;
     }
 
     input[type="text"] {
       flex: 1;
-      padding: 12px 16px;
+      min-width: 0;
+      padding: 12px 14px;
       border-radius: 8px;
       border: 1px solid #374151;
       background: #1f2937;
@@ -147,17 +167,14 @@
     }
 
     button {
-      padding: 12px 22px;
+      padding: 12px 18px;
       background: #2563eb;
       color: white;
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-weight: 600;
-    }
-
-    button:hover {
-      background: #1d4ed8;
+      flex-shrink: 0;
     }
 
     button:disabled {
@@ -173,8 +190,8 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong>LivingGPT (ReAct Engine)</strong>
-          <div style="font-size: 12px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
+          <strong style="font-size: 15px;">LivingGPT (ReAct Engine)</strong>
+          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
         </div>
       </div>
     </div>
@@ -186,7 +203,7 @@
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Give LivingGPT an objective (e.g. 'Calculate 48 * 25 and check current time')..." autocomplete="off" />
+      <input type="text" id="userInput" placeholder="Give LivingGPT an objective..." autocomplete="off" />
       <button type="submit" id="submitBtn">Execute</button>
     </form>
   </div>
@@ -199,14 +216,11 @@
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
 
-    // 1. Tool Registry
     const AgentTools = {
       calculator: {
         name: "calculator",
-        description: "Evaluates mathematical expressions safely",
         execute: async (expr) => {
           try {
-            // Safe evaluation of pure arithmetic
             const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
             const res = Function(`'use strict'; return (${cleanExpr})`)();
             return { success: true, output: res };
@@ -217,7 +231,6 @@
       },
       web_search: {
         name: "web_search",
-        description: "Searches the live web for factual knowledge",
         execute: async (query) => {
           try {
             const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -225,7 +238,7 @@
             const data = await res.json();
             if (data.AbstractText) return { success: true, output: data.AbstractText };
             if (data.RelatedTopics && data.RelatedTopics[0]?.Text) return { success: true, output: data.RelatedTopics[0].Text };
-            return { success: true, output: `Found references for '${query}', but no instant extract returned.` };
+            return { success: true, output: `Found references for '${query}', but no direct summary returned.` };
           } catch (err) {
             return { success: false, output: err.message };
           }
@@ -233,29 +246,26 @@
       },
       env_check: {
         name: "env_check",
-        description: "Retrieves client time, platform, and operational context",
         execute: async () => {
           return {
             success: true,
-            output: `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}, Platform: ${navigator.userAgentData?.platform || navigator.platform}`
+            output: `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`
           };
         }
       }
     };
 
-    // 2. Autonomous Planner & ReAct Agent Core
     async function runAgentReActLoop(goal) {
       appendThought(`Decomposing objective: "${goal}"`);
 
-      // Plan steps dynamically based on goal parsing
       const plan = [];
       const mathMatch = goal.match(/(\d+\s*[\+\-\*\/]\s*\d+)/);
       const asksTime = /time|date|today|clock/i.test(goal);
       const asksInfo = /(what|who|where|how|why|search|lookup|find)/i.test(goal) || (!mathMatch && !asksTime);
 
-      if (asksTime) plan.push({ tool: 'env_check', param: null, reason: "Need system/time observation" });
-      if (mathMatch) plan.push({ tool: 'calculator', param: mathMatch[0], reason: "Need arithmetic calculation" });
-      if (asksInfo) plan.push({ tool: 'web_search', param: goal, reason: "Need external factual data" });
+      if (asksTime) plan.push({ tool: 'env_check', param: null, reason: "Fetch system context/time" });
+      if (mathMatch) plan.push({ tool: 'calculator', param: mathMatch[0], reason: "Execute arithmetic calculation" });
+      if (asksInfo) plan.push({ tool: 'web_search', param: goal, reason: "Fetch web knowledge" });
 
       if (plan.length === 0) {
         plan.push({ tool: 'web_search', param: goal, reason: "Defaulting to search exploration" });
@@ -263,26 +273,21 @@
 
       const observations = [];
 
-      // Execute Thought -> Action -> Observation cycle
       for (let i = 0; i < plan.length; i++) {
         const step = plan[i];
-        appendThought(`Step ${i + 1}/${plan.length}: ${step.reason}. Selecting tool '${step.tool}'`);
-
+        appendThought(`Step ${i + 1}/${plan.length}: ${step.reason} -> Tool: '${step.tool}'`);
         appendToolCall(`Action: ${step.tool}(${step.param ? `"${step.param}"` : ''})`);
         
-        // Artificial small pause to simulate agent processing cycle
         await new Promise(r => setTimeout(r, 600));
 
         const result = await AgentTools[step.tool].execute(step.param);
         observations.push({ step: step.tool, result: result.output });
-
         appendObservation(`Observation [${step.tool}]: ${result.output}`);
       }
 
-      appendThought(`All sub-tasks evaluated. Synthesizing final response based on observations.`);
+      appendThought(`Sub-tasks finished. Generating synthesis.`);
       
-      // Final synthesis
-      let synthesis = `Goal completed. Observations recorded:\n`;
+      let synthesis = `Goal completed. Key findings:\n`;
       observations.forEach(o => {
         synthesis += `\n• ${o.step}: ${o.result}`;
       });
@@ -290,7 +295,6 @@
       return synthesis;
     }
 
-    // UI event listener
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const goal = input.value.trim();
@@ -304,7 +308,7 @@
         const finalResponse = await runAgentReActLoop(goal);
         appendMessage(finalResponse, 'agent');
       } catch (err) {
-        appendMessage(`Agent execution halted due to an unhandled exception: ${err.message}`, 'agent');
+        appendMessage(`Agent execution failed: ${err.message}`, 'agent');
       } finally {
         setBusy(false);
       }
@@ -345,7 +349,7 @@
     function setBusy(isBusy) {
       if (isBusy) {
         statusDot.classList.add('busy');
-        agentState.textContent = 'Agent loop executing...';
+        agentState.textContent = 'Agent executing loop...';
         submitBtn.disabled = true;
       } else {
         statusDot.classList.remove('busy');
