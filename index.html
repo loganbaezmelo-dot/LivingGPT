@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LivingGPT Interface</title>
+  <title>LivingGPT - Autonomous Agent Engine</title>
   <style>
     * {
       box-sizing: border-box;
@@ -13,7 +13,7 @@
     }
 
     body {
-      background-color: #0f172a;
+      background-color: #0b0f19;
       color: #f8fafc;
       display: flex;
       justify-content: center;
@@ -23,21 +23,21 @@
 
     .agent-container {
       width: 100%;
-      max-width: 850px;
-      height: 90vh;
-      background: #1e293b;
+      max-width: 900px;
+      height: 92vh;
+      background: #111827;
       border-radius: 12px;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
       overflow: hidden;
-      border: 1px solid #334155;
+      border: 1px solid #1f2937;
     }
 
     .header {
       padding: 16px 20px;
       background: #0f172a;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid #1f2937;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -46,7 +46,7 @@
     .agent-info {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .status-dot {
@@ -58,8 +58,8 @@
     }
 
     .status-dot.busy {
-      background-color: #eab308;
-      box-shadow: 0 0 8px #eab308;
+      background-color: #f59e0b;
+      box-shadow: 0 0 10px #f59e0b;
     }
 
     .chat-box {
@@ -68,11 +68,11 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
 
     .message {
-      max-width: 80%;
+      max-width: 82%;
       padding: 12px 16px;
       border-radius: 10px;
       line-height: 1.5;
@@ -88,36 +88,45 @@
 
     .agent {
       align-self: flex-start;
-      background-color: #334155;
-      color: #f1f5f9;
+      background-color: #1f2937;
+      color: #f3f4f6;
+      border: 1px solid #374151;
+    }
+
+    .thought-bubble {
+      max-width: 85%;
+      align-self: flex-start;
+      background: #182234;
+      border-left: 3px solid #60a5fa;
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #93c5fd;
+      font-family: monospace;
     }
 
     .tool-call {
       font-family: monospace;
       font-size: 12px;
-      background: #0b1120;
+      background: #030712;
+      border: 1px solid #1f2937;
       border-left: 3px solid #38bdf8;
       padding: 8px 12px;
       border-radius: 4px;
-      color: #94a3b8;
+      color: #cbd5e1;
       max-width: 85%;
       align-self: flex-start;
     }
 
-    .tool-call.success {
-      border-left-color: #22c55e;
-    }
-
-    .search-source {
-      margin-top: 8px;
-      font-size: 12px;
-      color: #38bdf8;
+    .tool-call.result {
+      border-left-color: #34d399;
+      color: #a7f3d0;
     }
 
     .input-area {
       padding: 16px 20px;
       background: #0f172a;
-      border-top: 1px solid #334155;
+      border-top: 1px solid #1f2937;
       display: flex;
       gap: 10px;
     }
@@ -126,8 +135,8 @@
       flex: 1;
       padding: 12px 16px;
       border-radius: 8px;
-      border: 1px solid #334155;
-      background: #1e293b;
+      border: 1px solid #374151;
+      background: #1f2937;
       color: #fff;
       outline: none;
       font-size: 14px;
@@ -138,14 +147,13 @@
     }
 
     button {
-      padding: 12px 20px;
+      padding: 12px 22px;
       background: #2563eb;
       color: white;
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-weight: 600;
-      transition: background 0.2s;
     }
 
     button:hover {
@@ -153,7 +161,7 @@
     }
 
     button:disabled {
-      background: #475569;
+      background: #374151;
       cursor: not-allowed;
     }
   </style>
@@ -165,87 +173,142 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong id="agentName">LivingGPT</strong>
-          <div style="font-size: 12px; color: #94a3b8;" id="agentState">Idle</div>
+          <strong>LivingGPT (ReAct Engine)</strong>
+          <div style="font-size: 12px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
         </div>
       </div>
     </div>
 
     <div class="chat-box" id="chatBox">
       <div class="message agent">
-        LivingGPT initialized with live Web Search capability. Ask me a question or tell me to look something up.
+        LivingGPT Autonomous Agent ready. I can plan sub-tasks, select dynamic tools (Web Search, Math Engine, Environment Check), observe results, and self-direct toward an answer.
       </div>
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Ask LivingGPT to search or solve something..." autocomplete="off" />
-      <button type="submit" id="submitBtn">Run</button>
+      <input type="text" id="userInput" placeholder="Give LivingGPT an objective (e.g. 'Calculate 48 * 25 and check current time')..." autocomplete="off" />
+      <button type="submit" id="submitBtn">Execute</button>
     </form>
   </div>
 
   <script>
-    const form = document.getElementById('agentForm');
-    const input = document.getElementById('userInput');
     const chatBox = document.getElementById('chatBox');
+    const input = document.getElementById('userInput');
+    const form = document.getElementById('agentForm');
     const statusDot = document.getElementById('statusDot');
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
 
+    // 1. Tool Registry
+    const AgentTools = {
+      calculator: {
+        name: "calculator",
+        description: "Evaluates mathematical expressions safely",
+        execute: async (expr) => {
+          try {
+            // Safe evaluation of pure arithmetic
+            const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
+            const res = Function(`'use strict'; return (${cleanExpr})`)();
+            return { success: true, output: res };
+          } catch (e) {
+            return { success: false, output: "Invalid arithmetic expression" };
+          }
+        }
+      },
+      web_search: {
+        name: "web_search",
+        description: "Searches the live web for factual knowledge",
+        execute: async (query) => {
+          try {
+            const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+            const res = await fetch(endpoint);
+            const data = await res.json();
+            if (data.AbstractText) return { success: true, output: data.AbstractText };
+            if (data.RelatedTopics && data.RelatedTopics[0]?.Text) return { success: true, output: data.RelatedTopics[0].Text };
+            return { success: true, output: `Found references for '${query}', but no instant extract returned.` };
+          } catch (err) {
+            return { success: false, output: err.message };
+          }
+        }
+      },
+      env_check: {
+        name: "env_check",
+        description: "Retrieves client time, platform, and operational context",
+        execute: async () => {
+          return {
+            success: true,
+            output: `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}, Platform: ${navigator.userAgentData?.platform || navigator.platform}`
+          };
+        }
+      }
+    };
+
+    // 2. Autonomous Planner & ReAct Agent Core
+    async function runAgentReActLoop(goal) {
+      appendThought(`Decomposing objective: "${goal}"`);
+
+      // Plan steps dynamically based on goal parsing
+      const plan = [];
+      const mathMatch = goal.match(/(\d+\s*[\+\-\*\/]\s*\d+)/);
+      const asksTime = /time|date|today|clock/i.test(goal);
+      const asksInfo = /(what|who|where|how|why|search|lookup|find)/i.test(goal) || (!mathMatch && !asksTime);
+
+      if (asksTime) plan.push({ tool: 'env_check', param: null, reason: "Need system/time observation" });
+      if (mathMatch) plan.push({ tool: 'calculator', param: mathMatch[0], reason: "Need arithmetic calculation" });
+      if (asksInfo) plan.push({ tool: 'web_search', param: goal, reason: "Need external factual data" });
+
+      if (plan.length === 0) {
+        plan.push({ tool: 'web_search', param: goal, reason: "Defaulting to search exploration" });
+      }
+
+      const observations = [];
+
+      // Execute Thought -> Action -> Observation cycle
+      for (let i = 0; i < plan.length; i++) {
+        const step = plan[i];
+        appendThought(`Step ${i + 1}/${plan.length}: ${step.reason}. Selecting tool '${step.tool}'`);
+
+        appendToolCall(`Action: ${step.tool}(${step.param ? `"${step.param}"` : ''})`);
+        
+        // Artificial small pause to simulate agent processing cycle
+        await new Promise(r => setTimeout(r, 600));
+
+        const result = await AgentTools[step.tool].execute(step.param);
+        observations.push({ step: step.tool, result: result.output });
+
+        appendObservation(`Observation [${step.tool}]: ${result.output}`);
+      }
+
+      appendThought(`All sub-tasks evaluated. Synthesizing final response based on observations.`);
+      
+      // Final synthesis
+      let synthesis = `Goal completed. Observations recorded:\n`;
+      observations.forEach(o => {
+        synthesis += `\n• ${o.step}: ${o.result}`;
+      });
+
+      return synthesis;
+    }
+
+    // UI event listener
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const task = input.value.trim();
-      if (!task) return;
+      const goal = input.value.trim();
+      if (!goal) return;
 
-      appendMessage(task, 'user');
+      appendMessage(goal, 'user');
       input.value = '';
       setBusy(true);
 
       try {
-        appendToolCall(`Evaluating task: deciding whether tool execution is required...`);
-
-        // Trigger live search tool
-        appendToolCall(`Invoking Tool: web_search(query="${task}")`);
-        const searchData = await executeSearchTool(task);
-
-        if (searchData.found) {
-          appendToolCall(`web_search returned relevant data from: ${searchData.source}`, true);
-          appendMessage(`Based on search results:\n\n${searchData.snippet}`, 'agent');
-        } else {
-          appendToolCall(`web_search returned no direct extract; parsing general index...`, false);
-          appendMessage(`LivingGPT completed the run. Web search didn't yield an immediate summary, but the agent logged the query across active listeners.`, 'agent');
-        }
+        const finalResponse = await runAgentReActLoop(goal);
+        appendMessage(finalResponse, 'agent');
       } catch (err) {
-        appendToolCall(`Tool execution failed: ${err.message}`, false);
-        appendMessage(`LivingGPT hit an error executing search tools: ${err.message}`, 'agent');
+        appendMessage(`Agent execution halted due to an unhandled exception: ${err.message}`, 'agent');
       } finally {
         setBusy(false);
       }
     });
-
-    async function executeSearchTool(query) {
-      // DuckDuckGo Instant Answer API (CORS friendly)
-      const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-      const res = await fetch(endpoint);
-      const data = await res.json();
-
-      if (data.AbstractText) {
-        return {
-          found: true,
-          snippet: data.AbstractText,
-          source: data.AbstractSource || 'Web Archive'
-        };
-      }
-
-      if (data.RelatedTopics && data.RelatedTopics.length > 0 && data.RelatedTopics[0].Text) {
-        return {
-          found: true,
-          snippet: data.RelatedTopics[0].Text,
-          source: 'DuckDuckGo Knowledge Base'
-        };
-      }
-
-      return { found: false };
-    }
 
     function appendMessage(text, role) {
       const msg = document.createElement('div');
@@ -255,22 +318,38 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function appendToolCall(toolDetails, isSuccess = null) {
-      const toolDiv = document.createElement('div');
-      toolDiv.className = 'tool-call' + (isSuccess ? ' success' : '');
-      toolDiv.textContent = `⚙️ [Agent Pipeline] ${toolDetails}`;
-      chatBox.appendChild(toolDiv);
+    function appendThought(thought) {
+      const el = document.createElement('div');
+      el.className = 'thought-bubble';
+      el.textContent = `🧠 [Reasoning] ${thought}`;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function appendToolCall(details) {
+      const el = document.createElement('div');
+      el.className = 'tool-call';
+      el.textContent = `🛠️ ${details}`;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function appendObservation(obs) {
+      const el = document.createElement('div');
+      el.className = 'tool-call result';
+      el.textContent = `👁️ ${obs}`;
+      chatBox.appendChild(el);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
     function setBusy(isBusy) {
       if (isBusy) {
         statusDot.classList.add('busy');
-        agentState.textContent = 'Searching & Executing...';
+        agentState.textContent = 'Agent loop executing...';
         submitBtn.disabled = true;
       } else {
         statusDot.classList.remove('busy');
-        agentState.textContent = 'Idle';
+        agentState.textContent = 'Autonomous loop: idle';
         submitBtn.disabled = false;
       }
     }
