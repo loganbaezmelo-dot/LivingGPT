@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>LivingGPT - In-Browser AI Agent</title>
+  <title>LivingGPT - Mobile Safe AI Agent</title>
   <style>
     * {
       box-sizing: border-box;
@@ -80,7 +80,6 @@
       box-shadow: 0 0 10px #38bdf8;
     }
 
-    /* Model Download Bar */
     .download-panel {
       padding: 10px 16px;
       background: #1e293b;
@@ -223,16 +222,15 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong style="font-size: 15px;">LivingGPT (Local Neural Core)</strong>
-          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Initializing Neural Engine...</div>
+          <strong style="font-size: 15px;">LivingGPT (Smol-Core)</strong>
+          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Loading Mobile Neural Brain...</div>
         </div>
       </div>
     </div>
 
-    <!-- Storage & Download Progress Panel -->
     <div class="download-panel" id="downloadPanel">
       <div style="display: flex; justify-content: space-between;">
-        <span id="downloadStatus">Checking persistent storage...</span>
+        <span id="downloadStatus">Connecting to weight cache...</span>
         <span id="downloadPercent">0%</span>
       </div>
       <div class="download-bar-bg">
@@ -243,13 +241,13 @@
     <div class="chat-box" id="chatBox">
       <div class="message agent">
         <div class="response-text">
-          LivingGPT is preparing its neural weights. Once loaded into local storage, all reasoning and agent decisions happen directly on your device.
+          LivingGPT is caching its tiny neural brain (~40MB). Once ready, queries will process locally without crashing your phone.
         </div>
       </div>
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Waiting for model to load..." disabled autocomplete="off" />
+      <input type="text" id="userInput" placeholder="Downloading model..." disabled autocomplete="off" />
       <button type="submit" id="submitBtn" disabled>Run</button>
     </form>
   </div>
@@ -257,7 +255,6 @@
   <script type="module">
     import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
 
-    // Enable browser cache (IndexedDB / CacheStorage) so weights download only once
     env.useBrowserCache = true;
     env.allowLocalModels = false;
 
@@ -273,9 +270,9 @@
     const downloadFill = document.getElementById('downloadFill');
 
     let generator = null;
-    const MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
+    // SmolLM2-135M is tiny (~45MB quantized) - prevents mobile browser crashes
+    const MODEL_ID = 'onnx-community/SmolLM2-135M-Instruct';
 
-    // Tool Registry
     const AgentTools = {
       calculator: async (expr) => {
         try {
@@ -288,13 +285,14 @@
       },
       web_search: async (query) => {
         try {
-          const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.trim())}`;
+          const clean = query.replace(/["']/g, '').trim();
+          const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(clean)}`;
           const res = await fetch(endpoint);
           if (res.ok) {
             const data = await res.json();
             if (data.extract) return data.extract;
           }
-          return `No direct summary found for '${query}'.`;
+          return `No direct summary found for '${clean}'.`;
         } catch (e) {
           return `Lookup failed: ${e.message}`;
         }
@@ -304,13 +302,7 @@
       }
     };
 
-    // Initialize Local Model with Caching & Progress
     async function initModel() {
-      const isCached = localStorage.getItem('livinggpt_model_cached') === 'true';
-      downloadStatus.textContent = isCached 
-        ? 'Loading neural weights from local browser storage...' 
-        : 'Downloading neural weights (cached permanently after)...';
-
       try {
         generator = await pipeline('text-generation', MODEL_ID, {
           dtype: 'q4',
@@ -324,11 +316,9 @@
           }
         });
 
-        localStorage.setItem('livinggpt_model_cached', 'true');
         downloadPanel.style.display = 'none';
-
         statusDot.className = 'status-dot ready';
-        agentState.textContent = 'Neural brain ready (Offline Cached)';
+        agentState.textContent = 'Neural Engine Ready';
         input.disabled = false;
         submitBtn.disabled = false;
         input.placeholder = 'Give LivingGPT an objective...';
@@ -340,59 +330,61 @@
 
     initModel();
 
-    // The True Neural ReAct Loop
     async function runNeuralAgent(goal, logCollector) {
-      logCollector.addThought(`Goal received: "${goal}"`);
-      logCollector.addThought(`Prompting local neural model to select action...`);
+      logCollector.addThought(`Goal: "${goal}"`);
+      logCollector.addThought(`Deciding tool with SmolLM2 neural core...`);
 
-      const systemPrompt = `<|im_start|>system
-You are LivingGPT, an autonomous AI agent. Decide which tool to call based on the user's objective:
-- ACTION: calculator("expression")
-- ACTION: web_search("subject")
+      // Extremely lightweight prompt format to reduce token overhead
+      const prompt = `<|im_start|>system
+You are an autonomous tool-calling agent.
+Options:
+- ACTION: calculator("expr")
+- ACTION: web_search("term")
 - ACTION: env_check()
-- FINAL: direct conversational answer
+- FINAL: direct greeting/answer
 
-Answer strictly with either an ACTION line or a FINAL line.<|im_end|>
+Output ONE line only.<|im_end|>
 <|im_start|>user
-Objective: ${goal}<|im_end|>
+${goal}<|im_end|>
 <|im_start|>assistant
 `;
 
-      const output = await generator(systemPrompt, {
-        max_new_tokens: 48,
-        temperature: 0.1,
-        return_full_text: false
-      });
+      let decision = "";
+      try {
+        const output = await generator(prompt, {
+          max_new_tokens: 24, // Keep very short so phone doesn't freeze
+          temperature: 0.0,
+          return_full_text: false
+        });
+        decision = output[0].generated_text.trim();
+        logCollector.addThought(`Neural output: ${decision}`);
+      } catch (err) {
+        logCollector.addThought(`Generation fallback: ${err.message}`);
+        decision = "ACTION: web_search(\"" + goal + "\")";
+      }
 
-      const decision = output[0].generated_text.trim();
-      logCollector.addThought(`Neural core output: ${decision}`);
-
-      // Parse Neural Decision
       let observation = null;
 
-      if (decision.includes('ACTION: calculator')) {
+      if (decision.includes('calculator')) {
         const match = decision.match(/calculator\((?:'|")?(.*?)(?:'|")?\)/);
         const expr = match ? match[1] : goal;
         logCollector.addAction(`calculator("${expr}")`);
         observation = await AgentTools.calculator(expr);
-      } else if (decision.includes('ACTION: web_search')) {
+      } else if (decision.includes('web_search')) {
         const match = decision.match(/web_search\((?:'|")?(.*?)(?:'|")?\)/);
         const query = match ? match[1] : goal;
         logCollector.addAction(`web_search("${query}")`);
         observation = await AgentTools.web_search(query);
-      } else if (decision.includes('ACTION: env_check')) {
+      } else if (decision.includes('env_check')) {
         logCollector.addAction(`env_check()`);
         observation = await AgentTools.env_check();
       }
 
-      // If a tool was triggered, synthesize the final answer
       if (observation) {
         logCollector.addObs(observation);
-        logCollector.addThought(`Synthesizing answer from tool observation...`);
         return observation;
       }
 
-      // If the neural model provided a direct answer
       return decision.replace(/^FINAL:\s*/i, '');
     }
 
@@ -405,7 +397,7 @@ Objective: ${goal}<|im_end|>
       input.value = '';
 
       statusDot.className = 'status-dot busy';
-      agentState.textContent = 'Neural loop executing...';
+      agentState.textContent = 'Neural thinking...';
       submitBtn.disabled = true;
 
       const { logCollector, setText } = createAgentMessage();
@@ -414,10 +406,10 @@ Objective: ${goal}<|im_end|>
         const result = await runNeuralAgent(goal, logCollector);
         setText(result);
       } catch (err) {
-        setText(`Execution halted: ${err.message}`);
+        setText(`Error: ${err.message}`);
       } finally {
         statusDot.className = 'status-dot ready';
-        agentState.textContent = 'Neural brain ready';
+        agentState.textContent = 'Neural Engine Ready';
         submitBtn.disabled = false;
       }
     });
@@ -447,7 +439,7 @@ Objective: ${goal}<|im_end|>
       details.appendChild(logContainer);
 
       const responseEl = document.createElement('div');
-      responseEl.innerHTML = '<i>Processing neural tokens...</i>';
+      responseEl.innerHTML = '<i>Processing tokens...</i>';
 
       card.appendChild(details);
       card.appendChild(responseEl);
