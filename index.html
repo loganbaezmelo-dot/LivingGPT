@@ -241,13 +241,13 @@
     <div class="chat-box" id="chatBox">
       <div class="message agent">
         <div class="response-text">
-          LivingGPT is caching its tiny neural brain (~40MB). Once ready, queries will process locally without crashing your phone.
+          LivingGPT is caching its neural weights (~45MB). Once loaded into local storage, the agent runs entirely in-browser with zero API fees.
         </div>
       </div>
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Downloading model..." disabled autocomplete="off" />
+      <input type="text" id="userInput" placeholder="Downloading neural weights..." disabled autocomplete="off" />
       <button type="submit" id="submitBtn" disabled>Run</button>
     </form>
   </div>
@@ -270,8 +270,7 @@
     const downloadFill = document.getElementById('downloadFill');
 
     let generator = null;
-    // SmolLM2-135M is tiny (~45MB quantized) - prevents mobile browser crashes
-    const MODEL_ID = 'onnx-community/SmolLM2-135M-Instruct';
+    const MODEL_ID = 'HuggingFaceTB/SmolLM2-135M-Instruct';
 
     const AgentTools = {
       calculator: async (expr) => {
@@ -334,7 +333,6 @@
       logCollector.addThought(`Goal: "${goal}"`);
       logCollector.addThought(`Deciding tool with SmolLM2 neural core...`);
 
-      // Extremely lightweight prompt format to reduce token overhead
       const prompt = `<|im_start|>system
 You are an autonomous tool-calling agent.
 Options:
@@ -352,7 +350,7 @@ ${goal}<|im_end|>
       let decision = "";
       try {
         const output = await generator(prompt, {
-          max_new_tokens: 24, // Keep very short so phone doesn't freeze
+          max_new_tokens: 24,
           temperature: 0.0,
           return_full_text: false
         });
