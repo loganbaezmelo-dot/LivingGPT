@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>LivingGPT - Autonomous Agent Engine</title>
+  <title>LivingGPT - In-Browser AI Agent</title>
   <style>
     * {
       box-sizing: border-box;
@@ -64,15 +64,46 @@
     .status-dot {
       width: 10px;
       height: 10px;
-      background-color: #22c55e;
+      background-color: #eab308;
       border-radius: 50%;
-      box-shadow: 0 0 8px #22c55e;
+      box-shadow: 0 0 8px #eab308;
       flex-shrink: 0;
     }
 
+    .status-dot.ready {
+      background-color: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+
     .status-dot.busy {
-      background-color: #f59e0b;
-      box-shadow: 0 0 10px #f59e0b;
+      background-color: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+    }
+
+    /* Model Download Bar */
+    .download-panel {
+      padding: 10px 16px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .download-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: #0f172a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .download-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: #38bdf8;
+      transition: width 0.2s ease;
     }
 
     .chat-box {
@@ -112,7 +143,6 @@
       gap: 8px;
     }
 
-    /* Clean Agent Thought Accordion */
     details.thought-dropdown {
       background: #0d1424;
       border: 1px solid #1e293b;
@@ -127,14 +157,9 @@
       color: #94a3b8;
       font-weight: 500;
       outline: none;
-      user-select: none;
       display: flex;
       align-items: center;
       gap: 6px;
-    }
-
-    details.thought-dropdown summary:hover {
-      color: #cbd5e1;
     }
 
     .thought-logs {
@@ -148,28 +173,9 @@
       font-size: 11px;
     }
 
-    .log-item {
-      color: #93c5fd;
-      line-height: 1.4;
-    }
-
-    .log-action {
-      color: #38bdf8;
-    }
-
-    .log-obs {
-      color: #34d399;
-    }
-
-    .log-retry {
-      color: #f97316;
-    }
-
-    .response-text {
-      font-size: 14px;
-      line-height: 1.5;
-      color: #f8fafc;
-    }
+    .log-item { color: #93c5fd; }
+    .log-action { color: #38bdf8; }
+    .log-obs { color: #34d399; }
 
     .input-area {
       padding: 12px 16px;
@@ -191,10 +197,6 @@
       color: #fff;
       outline: none;
       font-size: 14px;
-    }
-
-    input[type="text"]:focus {
-      border-color: #38bdf8;
     }
 
     button {
@@ -221,204 +223,202 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong style="font-size: 15px;">LivingGPT</strong>
-          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
+          <strong style="font-size: 15px;">LivingGPT (Local Neural Core)</strong>
+          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Initializing Neural Engine...</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Storage & Download Progress Panel -->
+    <div class="download-panel" id="downloadPanel">
+      <div style="display: flex; justify-content: space-between;">
+        <span id="downloadStatus">Checking persistent storage...</span>
+        <span id="downloadPercent">0%</span>
+      </div>
+      <div class="download-bar-bg">
+        <div class="download-bar-fill" id="downloadFill"></div>
       </div>
     </div>
 
     <div class="chat-box" id="chatBox">
       <div class="message agent">
         <div class="response-text">
-          LivingGPT ready. Give me an objective, calculation, or query to execute.
+          LivingGPT is preparing its neural weights. Once loaded into local storage, all reasoning and agent decisions happen directly on your device.
         </div>
       </div>
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Give LivingGPT an objective..." autocomplete="off" />
-      <button type="submit" id="submitBtn">Execute</button>
+      <input type="text" id="userInput" placeholder="Waiting for model to load..." disabled autocomplete="off" />
+      <button type="submit" id="submitBtn" disabled>Run</button>
     </form>
   </div>
 
-  <script>
+  <script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+    // Enable browser cache (IndexedDB / CacheStorage) so weights download only once
+    env.useBrowserCache = true;
+    env.allowLocalModels = false;
+
     const chatBox = document.getElementById('chatBox');
     const input = document.getElementById('userInput');
     const form = document.getElementById('agentForm');
     const statusDot = document.getElementById('statusDot');
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
+    const downloadPanel = document.getElementById('downloadPanel');
+    const downloadStatus = document.getElementById('downloadStatus');
+    const downloadPercent = document.getElementById('downloadPercent');
+    const downloadFill = document.getElementById('downloadFill');
 
+    let generator = null;
+    const MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
+
+    // Tool Registry
     const AgentTools = {
-      calculator: {
-        execute: async (expr) => {
-          try {
-            const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
-            const res = Function(`'use strict'; return (${cleanExpr})`)();
-            return { success: true, quality: "high", output: res };
-          } catch (e) {
-            return { success: false, quality: "low", output: "Calculation failed" };
-          }
+      calculator: async (expr) => {
+        try {
+          const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
+          const res = Function(`'use strict'; return (${cleanExpr})`)();
+          return `${expr} = ${res}`;
+        } catch {
+          return "Calculation error";
         }
       },
-      web_search: {
-        execute: async (query) => {
-          try {
-            const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-            const res = await fetch(endpoint);
+      web_search: async (query) => {
+        try {
+          const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.trim())}`;
+          const res = await fetch(endpoint);
+          if (res.ok) {
             const data = await res.json();
-            if (data.AbstractText) {
-              return { success: true, quality: "high", output: data.AbstractText };
-            }
-            if (data.RelatedTopics && data.RelatedTopics[0]?.Text) {
-              return { success: true, quality: "high", output: data.RelatedTopics[0].Text };
-            }
-            return { success: false, quality: "low", output: "No direct extract found" };
-          } catch (err) {
-            return { success: false, quality: "low", output: err.message };
+            if (data.extract) return data.extract;
           }
+          return `No direct summary found for '${query}'.`;
+        } catch (e) {
+          return `Lookup failed: ${e.message}`;
         }
       },
-      wikipedia_lookup: {
-        execute: async (query) => {
-          try {
-            const cleanQuery = query.replace(/(who is|what is|where is|search|lookup)/gi, '').trim();
-            const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanQuery)}`;
-            const res = await fetch(endpoint);
-            if (!res.ok) throw new Error("Article not found");
-            const data = await res.json();
-            if (data.extract) {
-              return { success: true, quality: "high", output: data.extract };
-            }
-            return { success: false, quality: "low", output: "No article summary" };
-          } catch (e) {
-            return { success: false, quality: "low", output: e.message };
-          }
-        }
-      },
-      env_check: {
-        execute: async () => {
-          return {
-            success: true,
-            quality: "high",
-            output: `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`
-          };
-        }
+      env_check: async () => {
+        return `Current Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`;
       }
     };
 
-    function parseIntent(rawGoal) {
-      const lower = rawGoal.trim().toLowerCase();
-      const isGreeting = /^(hi|hello|hey|sup|yo|greetings|hola)\b/i.test(lower) && lower.split(/\s+/).length <= 3;
+    // Initialize Local Model with Caching & Progress
+    async function initModel() {
+      const isCached = localStorage.getItem('livinggpt_model_cached') === 'true';
+      downloadStatus.textContent = isCached 
+        ? 'Loading neural weights from local browser storage...' 
+        : 'Downloading neural weights (cached permanently after)...';
 
-      let normalized = rawGoal
-        .replace(/×/g, '*')
-        .replace(/÷/g, '/')
-        .replace(/\bplus\b/gi, '+')
-        .replace(/\bminus\b/gi, '-')
-        .replace(/\btimes\b|\bmultiplied by\b/gi, '*')
-        .replace(/\bdivided by\b/gi, '/');
+      try {
+        generator = await pipeline('text-generation', MODEL_ID, {
+          dtype: 'q4',
+          progress_callback: (progress) => {
+            if (progress.status === 'progress') {
+              const p = Math.round(progress.progress || 0);
+              downloadPercent.textContent = `${p}%`;
+              downloadFill.style.width = `${p}%`;
+              downloadStatus.textContent = `Downloading ${progress.file || 'weights'}...`;
+            }
+          }
+        });
 
-      const mathMatch = normalized.match(/(\d+(\.\d+)?\s*[\+\-\*\/]\s*\d+(\.\d+)?)/);
-      const asksTime = /\b(time|date|today|clock|day)\b/i.test(rawGoal);
+        localStorage.setItem('livinggpt_model_cached', 'true');
+        downloadPanel.style.display = 'none';
 
-      return {
-        isGreeting,
-        isMath: !!mathMatch,
-        mathExpr: mathMatch ? mathMatch[0] : null,
-        isTime: asksTime,
-        cleanSearch: rawGoal.replace(/^(who is|what is|search|lookup|find)\s+/i, '').trim()
-      };
+        statusDot.className = 'status-dot ready';
+        agentState.textContent = 'Neural brain ready (Offline Cached)';
+        input.disabled = false;
+        submitBtn.disabled = false;
+        input.placeholder = 'Give LivingGPT an objective...';
+      } catch (err) {
+        downloadStatus.textContent = `Init failed: ${err.message}`;
+        agentState.textContent = 'Engine Error';
+      }
     }
 
-    async function runAgentReActLoop(goal, logCollector) {
+    initModel();
+
+    // The True Neural ReAct Loop
+    async function runNeuralAgent(goal, logCollector) {
       logCollector.addThought(`Goal received: "${goal}"`);
-      const intent = parseIntent(goal);
-      const observations = [];
+      logCollector.addThought(`Prompting local neural model to select action...`);
 
-      // 1. Direct Conversational Greeting (No wasteful Hawaii search)
-      if (intent.isGreeting) {
-        logCollector.addThought(`Intent classified as greeting. No tool calls necessary.`);
-        return "Hello! How can I assist you with your goals or tasks today?";
-      }
+      const systemPrompt = `<|im_start|>system
+You are LivingGPT, an autonomous AI agent. Decide which tool to call based on the user's objective:
+- ACTION: calculator("expression")
+- ACTION: web_search("subject")
+- ACTION: env_check()
+- FINAL: direct conversational answer
 
-      // 2. Math Intent
-      if (intent.isMath) {
-        logCollector.addThought(`Parsed arithmetic intent: "${intent.mathExpr}"`);
-        logCollector.addAction(`calculator("${intent.mathExpr}")`);
-        await new Promise(r => setTimeout(r, 400));
+Answer strictly with either an ACTION line or a FINAL line.<|im_end|>
+<|im_start|>user
+Objective: ${goal}<|im_end|>
+<|im_start|>assistant
+`;
 
-        const res = await AgentTools.calculator.execute(intent.mathExpr);
-        logCollector.addObs(`calculator -> ${res.output}`);
-        observations.push({ type: "math", result: `${intent.mathExpr} = ${res.output}` });
-      }
+      const output = await generator(systemPrompt, {
+        max_new_tokens: 48,
+        temperature: 0.1,
+        return_full_text: false
+      });
 
-      // 3. System / Temporal Intent
-      if (intent.isTime) {
-        logCollector.addThought(`Parsed system context query.`);
+      const decision = output[0].generated_text.trim();
+      logCollector.addThought(`Neural core output: ${decision}`);
+
+      // Parse Neural Decision
+      let observation = null;
+
+      if (decision.includes('ACTION: calculator')) {
+        const match = decision.match(/calculator\((?:'|")?(.*?)(?:'|")?\)/);
+        const expr = match ? match[1] : goal;
+        logCollector.addAction(`calculator("${expr}")`);
+        observation = await AgentTools.calculator(expr);
+      } else if (decision.includes('ACTION: web_search')) {
+        const match = decision.match(/web_search\((?:'|")?(.*?)(?:'|")?\)/);
+        const query = match ? match[1] : goal;
+        logCollector.addAction(`web_search("${query}")`);
+        observation = await AgentTools.web_search(query);
+      } else if (decision.includes('ACTION: env_check')) {
         logCollector.addAction(`env_check()`);
-        await new Promise(r => setTimeout(r, 400));
-
-        const res = await AgentTools.env_check.execute();
-        logCollector.addObs(`env_check -> ${res.output}`);
-        observations.push({ type: "time", result: res.output });
+        observation = await AgentTools.env_check();
       }
 
-      // 4. Knowledge Retrieval Intent
-      if (!intent.isMath && !intent.isTime) {
-        logCollector.addThought(`Executing knowledge retrieval for: "${intent.cleanSearch}"`);
-        logCollector.addAction(`web_search("${intent.cleanSearch}")`);
-        await new Promise(r => setTimeout(r, 450));
-
-        let res = await AgentTools.web_search.execute(intent.cleanSearch);
-
-        if (!res.success || res.quality === "low") {
-          logCollector.addThought(`DuckDuckGo returned low confidence. Engaging fallback strategy.`);
-          logCollector.addRetry(`wikipedia_lookup("${intent.cleanSearch}")`);
-          await new Promise(r => setTimeout(r, 550));
-
-          res = await AgentTools.wikipedia_lookup.execute(intent.cleanSearch);
-        }
-
-        if (res.success) {
-          logCollector.addObs(`Found relevant extract via fallback knowledge base.`);
-          observations.push({ type: "knowledge", result: res.output });
-        } else {
-          logCollector.addObs(`Failed to locate direct extracts across active registries.`);
-          observations.push({ type: "knowledge", result: `Could not locate verified web results for "${intent.cleanSearch}".` });
-        }
+      // If a tool was triggered, synthesize the final answer
+      if (observation) {
+        logCollector.addObs(observation);
+        logCollector.addThought(`Synthesizing answer from tool observation...`);
+        return observation;
       }
 
-      logCollector.addThought(`Loop completed. Synthesizing output.`);
-
-      const parts = [];
-      for (const obs of observations) {
-        if (obs.type === "math") parts.push(`The answer is **${obs.result}**.`);
-        else if (obs.type === "time") parts.push(`Current context: ${obs.result}.`);
-        else if (obs.type === "knowledge") parts.push(obs.result);
-      }
-      return parts.join("\n\n");
+      // If the neural model provided a direct answer
+      return decision.replace(/^FINAL:\s*/i, '');
     }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const goal = input.value.trim();
-      if (!goal) return;
+      if (!goal || !generator) return;
 
       appendMessage(goal, 'user');
       input.value = '';
-      setBusy(true);
 
-      // Create live agent response card
-      const { agentCard, logCollector, setText } = createAgentMessage();
+      statusDot.className = 'status-dot busy';
+      agentState.textContent = 'Neural loop executing...';
+      submitBtn.disabled = true;
+
+      const { logCollector, setText } = createAgentMessage();
 
       try {
-        const resultText = await runAgentReActLoop(goal, logCollector);
-        setText(resultText);
+        const result = await runNeuralAgent(goal, logCollector);
+        setText(result);
       } catch (err) {
-        setText(`Execution stopped: ${err.message}`);
+        setText(`Execution halted: ${err.message}`);
       } finally {
-        setBusy(false);
+        statusDot.className = 'status-dot ready';
+        agentState.textContent = 'Neural brain ready';
+        submitBtn.disabled = false;
       }
     });
 
@@ -436,10 +436,10 @@
 
       const details = document.createElement('details');
       details.className = 'thought-dropdown';
-      details.open = true; // Open while executing, collapses nicely
+      details.open = true;
 
       const summary = document.createElement('summary');
-      summary.innerHTML = '⚙️ Agent thought process & tools';
+      summary.innerHTML = '🧠 Neural Agent Reasoning';
       details.appendChild(summary);
 
       const logContainer = document.createElement('div');
@@ -447,8 +447,7 @@
       details.appendChild(logContainer);
 
       const responseEl = document.createElement('div');
-      responseEl.className = 'response-text';
-      responseEl.innerHTML = '<i>Processing...</i>';
+      responseEl.innerHTML = '<i>Processing neural tokens...</i>';
 
       card.appendChild(details);
       card.appendChild(responseEl);
@@ -456,10 +455,9 @@
       chatBox.scrollTop = chatBox.scrollHeight;
 
       const logCollector = {
-        addThought: (t) => addLog(`🧠 ${t}`, 'log-item'),
+        addThought: (t) => addLog(`💭 ${t}`, 'log-item'),
         addAction: (a) => addLog(`🛠️ Action: ${a}`, 'log-action'),
-        addRetry: (r) => addLog(`🔄 Pivot: ${r}`, 'log-retry'),
-        addObs: (o) => addLog(`👁️ Obs: ${o}`, 'log-obs'),
+        addObs: (o) => addLog(`👁️ Obs: ${o}`, 'log-obs')
       };
 
       function addLog(text, className) {
@@ -471,24 +469,12 @@
       }
 
       function setText(text) {
-        responseEl.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-        details.open = false; // Auto-collapse when done for clean look
+        responseEl.textContent = text;
+        details.open = false;
         chatBox.scrollTop = chatBox.scrollHeight;
       }
 
-      return { agentCard: card, logCollector, setText };
-    }
-
-    function setBusy(isBusy) {
-      if (isBusy) {
-        statusDot.classList.add('busy');
-        agentState.textContent = 'Agent executing loop...';
-        submitBtn.disabled = true;
-      } else {
-        statusDot.classList.remove('busy');
-        agentState.textContent = 'Autonomous loop: idle';
-        submitBtn.disabled = false;
-      }
+      return { logCollector, setText };
     }
   </script>
 </body>
