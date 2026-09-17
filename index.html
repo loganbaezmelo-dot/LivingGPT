@@ -140,6 +140,11 @@
       color: #a7f3d0;
     }
 
+    .tool-call.retry {
+      border-left-color: #f97316;
+      color: #fed7aa;
+    }
+
     .input-area {
       padding: 12px 16px;
       padding-bottom: calc(12px + env(safe-area-inset-bottom));
@@ -190,7 +195,7 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong style="font-size: 15px;">LivingGPT (ReAct Engine)</strong>
+          <strong style="font-size: 15px;">LivingGPT (Autonomous Engine)</strong>
           <div style="font-size: 11px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
         </div>
       </div>
@@ -198,7 +203,7 @@
 
     <div class="chat-box" id="chatBox">
       <div class="message agent">
-        LivingGPT Autonomous Agent ready. I can plan sub-tasks, select dynamic tools (Web Search, Math Engine, Environment Check), observe results, and self-direct toward an answer.
+        LivingGPT Autonomous Agent ready. Multi-step reasoning, query normalization, retry loops, and adaptive tools enabled.
       </div>
     </div>
 
@@ -216,6 +221,7 @@
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
 
+    // Tool Registry with execution feedback
     const AgentTools = {
       calculator: {
         name: "calculator",
@@ -223,9 +229,9 @@
           try {
             const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
             const res = Function(`'use strict'; return (${cleanExpr})`)();
-            return { success: true, output: res };
+            return { success: true, quality: "high", output: res };
           } catch (e) {
-            return { success: false, output: "Invalid arithmetic expression" };
+            return { success: false, quality: "low", output: "Calculation failed" };
           }
         }
       },
@@ -236,11 +242,33 @@
             const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
             const res = await fetch(endpoint);
             const data = await res.json();
-            if (data.AbstractText) return { success: true, output: data.AbstractText };
-            if (data.RelatedTopics && data.RelatedTopics[0]?.Text) return { success: true, output: data.RelatedTopics[0].Text };
-            return { success: true, output: `Found references for '${query}', but no direct summary returned.` };
+            if (data.AbstractText) {
+              return { success: true, quality: "high", output: data.AbstractText };
+            }
+            if (data.RelatedTopics && data.RelatedTopics[0]?.Text) {
+              return { success: true, quality: "high", output: data.RelatedTopics[0].Text };
+            }
+            return { success: false, quality: "low", output: "No direct extract found" };
           } catch (err) {
-            return { success: false, output: err.message };
+            return { success: false, quality: "low", output: err.message };
+          }
+        }
+      },
+      wikipedia_lookup: {
+        name: "wikipedia_lookup",
+        execute: async (query) => {
+          try {
+            const cleanQuery = query.replace(/(who is|what is|where is|search|lookup)/gi, '').trim();
+            const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanQuery)}`;
+            const res = await fetch(endpoint);
+            if (!res.ok) throw new Error("Article not found");
+            const data = await res.json();
+            if (data.extract) {
+              return { success: true, quality: "high", output: data.extract };
+            }
+            return { success: false, quality: "low", output: "No article summary" };
+          } catch (e) {
+            return { success: false, quality: "low", output: e.message };
           }
         }
       },
@@ -249,52 +277,104 @@
         execute: async () => {
           return {
             success: true,
+            quality: "high",
             output: `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`
           };
         }
       }
     };
 
-    async function runAgentReActLoop(goal) {
-      appendThought(`Decomposing objective: "${goal}"`);
+    // Query Preprocessor & Math Normalizer
+    function parseIntent(rawGoal) {
+      let normalized = rawGoal
+        .replace(/×/g, '*')
+        .replace(/÷/g, '/')
+        .replace(/\bplus\b/gi, '+')
+        .replace(/\bminus\b/gi, '-')
+        .replace(/\btimes\b|\bmultiplied by\b/gi, '*')
+        .replace(/\bdivided by\b/gi, '/');
 
-      const plan = [];
-      const mathMatch = goal.match(/(\d+\s*[\+\-\*\/]\s*\d+)/);
-      const asksTime = /time|date|today|clock/i.test(goal);
-      const asksInfo = /(what|who|where|how|why|search|lookup|find)/i.test(goal) || (!mathMatch && !asksTime);
+      const mathMatch = normalized.match(/(\d+(\.\d+)?\s*[\+\-\*\/]\s*\d+(\.\d+)?)/);
+      const asksTime = /\b(time|date|today|clock|day)\b/i.test(rawGoal);
 
-      if (asksTime) plan.push({ tool: 'env_check', param: null, reason: "Fetch system context/time" });
-      if (mathMatch) plan.push({ tool: 'calculator', param: mathMatch[0], reason: "Execute arithmetic calculation" });
-      if (asksInfo) plan.push({ tool: 'web_search', param: goal, reason: "Fetch web knowledge" });
-
-      if (plan.length === 0) {
-        plan.push({ tool: 'web_search', param: goal, reason: "Defaulting to search exploration" });
-      }
-
-      const observations = [];
-
-      for (let i = 0; i < plan.length; i++) {
-        const step = plan[i];
-        appendThought(`Step ${i + 1}/${plan.length}: ${step.reason} -> Tool: '${step.tool}'`);
-        appendToolCall(`Action: ${step.tool}(${step.param ? `"${step.param}"` : ''})`);
-        
-        await new Promise(r => setTimeout(r, 600));
-
-        const result = await AgentTools[step.tool].execute(step.param);
-        observations.push({ step: step.tool, result: result.output });
-        appendObservation(`Observation [${step.tool}]: ${result.output}`);
-      }
-
-      appendThought(`Sub-tasks finished. Generating synthesis.`);
-      
-      let synthesis = `Goal completed. Key findings:\n`;
-      observations.forEach(o => {
-        synthesis += `\n• ${o.step}: ${o.result}`;
-      });
-
-      return synthesis;
+      return {
+        isMath: !!mathMatch,
+        mathExpr: mathMatch ? mathMatch[0] : null,
+        isTime: asksTime,
+        cleanSearch: rawGoal.replace(/^(who is|what is|search|lookup|find)\s+/i, '').trim()
+      };
     }
 
+    // Dynamic ReAct Agent Engine with Tool Retries
+    async function runAgentReActLoop(goal) {
+      appendThought(`Analyzing goal: "${goal}"`);
+      const intent = parseIntent(goal);
+      const observations = [];
+
+      // 1. Math branch
+      if (intent.isMath) {
+        appendThought(`Detected arithmetic expression: "${intent.mathExpr}"`);
+        appendToolCall(`calculator("${intent.mathExpr}")`);
+        await new Promise(r => setTimeout(r, 450));
+
+        const res = await AgentTools.calculator.execute(intent.mathExpr);
+        appendObservation(`Result: ${res.output}`);
+        observations.push({ type: "math", result: `${intent.mathExpr} = ${res.output}` });
+      }
+
+      // 2. System / Time branch
+      if (intent.isTime) {
+        appendThought(`Detected environment/temporal intent.`);
+        appendToolCall(`env_check()`);
+        await new Promise(r => setTimeout(r, 450));
+
+        const res = await AgentTools.env_check.execute();
+        appendObservation(res.output);
+        observations.push({ type: "time", result: res.output });
+      }
+
+      // 3. Information retrieval with autonomous fallback loop
+      if (!intent.isMath && !intent.isTime) {
+        appendThought(`Knowledge intent identified. Strategy: Primary tool [web_search]`);
+        appendToolCall(`web_search("${intent.cleanSearch}")`);
+        await new Promise(r => setTimeout(r, 500));
+
+        let res = await AgentTools.web_search.execute(intent.cleanSearch);
+
+        // Self-Evaluation & Autonomous Pivot
+        if (!res.success || res.quality === "low") {
+          appendThought(`Observation quality insufficient. Activating fallback tool: [wikipedia_lookup]`);
+          appendRetryCall(`Switching agent strategy -> wikipedia_lookup("${intent.cleanSearch}")`);
+          await new Promise(r => setTimeout(r, 600));
+
+          res = await AgentTools.wikipedia_lookup.execute(intent.cleanSearch);
+        }
+
+        if (res.success) {
+          appendObservation(`Retrieved: ${res.output}`);
+          observations.push({ type: "knowledge", result: res.output });
+        } else {
+          appendObservation(`All search tools exhausted without definitive summary.`);
+          observations.push({ type: "knowledge", result: `No instant extract found for "${intent.cleanSearch}".` });
+        }
+      }
+
+      // 4. Natural Synthesis
+      appendThought(`Sub-actions completed. Synthesizing final response.`);
+      return synthesizeResponse(observations);
+    }
+
+    function synthesizeResponse(observations) {
+      const parts = [];
+      for (const obs of observations) {
+        if (obs.type === "math") parts.push(`The answer is **${obs.result}**.`);
+        else if (obs.type === "time") parts.push(`Current context: ${obs.result}.`);
+        else if (obs.type === "knowledge") parts.push(obs.result);
+      }
+      return parts.join("\n\n");
+    }
+
+    // UI Handler
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const goal = input.value.trim();
@@ -308,7 +388,7 @@
         const finalResponse = await runAgentReActLoop(goal);
         appendMessage(finalResponse, 'agent');
       } catch (err) {
-        appendMessage(`Agent execution failed: ${err.message}`, 'agent');
+        appendMessage(`Agent cycle interrupted: ${err.message}`, 'agent');
       } finally {
         setBusy(false);
       }
@@ -317,7 +397,7 @@
     function appendMessage(text, role) {
       const msg = document.createElement('div');
       msg.className = `message ${role}`;
-      msg.textContent = text;
+      msg.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
       chatBox.appendChild(msg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
@@ -333,7 +413,15 @@
     function appendToolCall(details) {
       const el = document.createElement('div');
       el.className = 'tool-call';
-      el.textContent = `🛠️ ${details}`;
+      el.textContent = `🛠️ Action: ${details}`;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function appendRetryCall(details) {
+      const el = document.createElement('div');
+      el.className = 'tool-call retry';
+      el.textContent = `🔄 Pivot: ${details}`;
       chatBox.appendChild(el);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
@@ -341,7 +429,7 @@
     function appendObservation(obs) {
       const el = document.createElement('div');
       el.className = 'tool-call result';
-      el.textContent = `👁️ ${obs}`;
+      el.textContent = `👁️ Observation: ${obs}`;
       chatBox.appendChild(el);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
