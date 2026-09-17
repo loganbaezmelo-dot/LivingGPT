@@ -28,19 +28,18 @@
 
     .agent-container {
       width: 100%;
-      max-width: 900px;
+      max-width: 850px;
       height: 100%;
       height: 100dvh;
       background: #111827;
       display: flex;
       flex-direction: column;
       border: 1px solid #1f2937;
-      position: relative;
     }
 
     @media (min-width: 768px) {
       .agent-container {
-        height: 90vh;
+        height: 92vh;
         border-radius: 12px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
       }
@@ -59,7 +58,7 @@
     .agent-info {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .status-dot {
@@ -84,16 +83,17 @@
       -webkit-overflow-scrolling: touch;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
     }
 
     .message {
-      max-width: 88%;
-      padding: 12px 14px;
-      border-radius: 10px;
-      line-height: 1.4;
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.5;
       font-size: 14px;
-      word-break: break-word;
+      word-break: normal;
+      overflow-wrap: break-word;
     }
 
     .user {
@@ -107,42 +107,68 @@
       background-color: #1f2937;
       color: #f3f4f6;
       border: 1px solid #374151;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
-    .thought-bubble {
-      max-width: 90%;
-      align-self: flex-start;
-      background: #182234;
-      border-left: 3px solid #60a5fa;
+    /* Clean Agent Thought Accordion */
+    details.thought-dropdown {
+      background: #0d1424;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
       padding: 8px 12px;
-      border-radius: 4px;
       font-size: 12px;
-      color: #93c5fd;
-      font-family: monospace;
+      margin-bottom: 6px;
     }
 
-    .tool-call {
-      font-family: monospace;
-      font-size: 12px;
-      background: #030712;
-      border: 1px solid #1f2937;
-      border-left: 3px solid #38bdf8;
-      padding: 8px 12px;
-      border-radius: 4px;
+    details.thought-dropdown summary {
+      cursor: pointer;
+      color: #94a3b8;
+      font-weight: 500;
+      outline: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    details.thought-dropdown summary:hover {
       color: #cbd5e1;
-      max-width: 90%;
-      align-self: flex-start;
-      word-break: break-all;
     }
 
-    .tool-call.result {
-      border-left-color: #34d399;
-      color: #a7f3d0;
+    .thought-logs {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #1e293b;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: monospace;
+      font-size: 11px;
     }
 
-    .tool-call.retry {
-      border-left-color: #f97316;
-      color: #fed7aa;
+    .log-item {
+      color: #93c5fd;
+      line-height: 1.4;
+    }
+
+    .log-action {
+      color: #38bdf8;
+    }
+
+    .log-obs {
+      color: #34d399;
+    }
+
+    .log-retry {
+      color: #f97316;
+    }
+
+    .response-text {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #f8fafc;
     }
 
     .input-area {
@@ -195,7 +221,7 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong style="font-size: 15px;">LivingGPT (Autonomous Engine)</strong>
+          <strong style="font-size: 15px;">LivingGPT</strong>
           <div style="font-size: 11px; color: #9ca3af;" id="agentState">Autonomous loop: idle</div>
         </div>
       </div>
@@ -203,7 +229,9 @@
 
     <div class="chat-box" id="chatBox">
       <div class="message agent">
-        LivingGPT Autonomous Agent ready. Multi-step reasoning, query normalization, retry loops, and adaptive tools enabled.
+        <div class="response-text">
+          LivingGPT ready. Give me an objective, calculation, or query to execute.
+        </div>
       </div>
     </div>
 
@@ -221,10 +249,8 @@
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
 
-    // Tool Registry with execution feedback
     const AgentTools = {
       calculator: {
-        name: "calculator",
         execute: async (expr) => {
           try {
             const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
@@ -236,7 +262,6 @@
         }
       },
       web_search: {
-        name: "web_search",
         execute: async (query) => {
           try {
             const endpoint = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -255,7 +280,6 @@
         }
       },
       wikipedia_lookup: {
-        name: "wikipedia_lookup",
         execute: async (query) => {
           try {
             const cleanQuery = query.replace(/(who is|what is|where is|search|lookup)/gi, '').trim();
@@ -273,7 +297,6 @@
         }
       },
       env_check: {
-        name: "env_check",
         execute: async () => {
           return {
             success: true,
@@ -284,8 +307,10 @@
       }
     };
 
-    // Query Preprocessor & Math Normalizer
     function parseIntent(rawGoal) {
+      const lower = rawGoal.trim().toLowerCase();
+      const isGreeting = /^(hi|hello|hey|sup|yo|greetings|hola)\b/i.test(lower) && lower.split(/\s+/).length <= 3;
+
       let normalized = rawGoal
         .replace(/×/g, '*')
         .replace(/÷/g, '/')
@@ -298,6 +323,7 @@
       const asksTime = /\b(time|date|today|clock|day)\b/i.test(rawGoal);
 
       return {
+        isGreeting,
         isMath: !!mathMatch,
         mathExpr: mathMatch ? mathMatch[0] : null,
         isTime: asksTime,
@@ -305,66 +331,66 @@
       };
     }
 
-    // Dynamic ReAct Agent Engine with Tool Retries
-    async function runAgentReActLoop(goal) {
-      appendThought(`Analyzing goal: "${goal}"`);
+    async function runAgentReActLoop(goal, logCollector) {
+      logCollector.addThought(`Goal received: "${goal}"`);
       const intent = parseIntent(goal);
       const observations = [];
 
-      // 1. Math branch
+      // 1. Direct Conversational Greeting (No wasteful Hawaii search)
+      if (intent.isGreeting) {
+        logCollector.addThought(`Intent classified as greeting. No tool calls necessary.`);
+        return "Hello! How can I assist you with your goals or tasks today?";
+      }
+
+      // 2. Math Intent
       if (intent.isMath) {
-        appendThought(`Detected arithmetic expression: "${intent.mathExpr}"`);
-        appendToolCall(`calculator("${intent.mathExpr}")`);
-        await new Promise(r => setTimeout(r, 450));
+        logCollector.addThought(`Parsed arithmetic intent: "${intent.mathExpr}"`);
+        logCollector.addAction(`calculator("${intent.mathExpr}")`);
+        await new Promise(r => setTimeout(r, 400));
 
         const res = await AgentTools.calculator.execute(intent.mathExpr);
-        appendObservation(`Result: ${res.output}`);
+        logCollector.addObs(`calculator -> ${res.output}`);
         observations.push({ type: "math", result: `${intent.mathExpr} = ${res.output}` });
       }
 
-      // 2. System / Time branch
+      // 3. System / Temporal Intent
       if (intent.isTime) {
-        appendThought(`Detected environment/temporal intent.`);
-        appendToolCall(`env_check()`);
-        await new Promise(r => setTimeout(r, 450));
+        logCollector.addThought(`Parsed system context query.`);
+        logCollector.addAction(`env_check()`);
+        await new Promise(r => setTimeout(r, 400));
 
         const res = await AgentTools.env_check.execute();
-        appendObservation(res.output);
+        logCollector.addObs(`env_check -> ${res.output}`);
         observations.push({ type: "time", result: res.output });
       }
 
-      // 3. Information retrieval with autonomous fallback loop
+      // 4. Knowledge Retrieval Intent
       if (!intent.isMath && !intent.isTime) {
-        appendThought(`Knowledge intent identified. Strategy: Primary tool [web_search]`);
-        appendToolCall(`web_search("${intent.cleanSearch}")`);
-        await new Promise(r => setTimeout(r, 500));
+        logCollector.addThought(`Executing knowledge retrieval for: "${intent.cleanSearch}"`);
+        logCollector.addAction(`web_search("${intent.cleanSearch}")`);
+        await new Promise(r => setTimeout(r, 450));
 
         let res = await AgentTools.web_search.execute(intent.cleanSearch);
 
-        // Self-Evaluation & Autonomous Pivot
         if (!res.success || res.quality === "low") {
-          appendThought(`Observation quality insufficient. Activating fallback tool: [wikipedia_lookup]`);
-          appendRetryCall(`Switching agent strategy -> wikipedia_lookup("${intent.cleanSearch}")`);
-          await new Promise(r => setTimeout(r, 600));
+          logCollector.addThought(`DuckDuckGo returned low confidence. Engaging fallback strategy.`);
+          logCollector.addRetry(`wikipedia_lookup("${intent.cleanSearch}")`);
+          await new Promise(r => setTimeout(r, 550));
 
           res = await AgentTools.wikipedia_lookup.execute(intent.cleanSearch);
         }
 
         if (res.success) {
-          appendObservation(`Retrieved: ${res.output}`);
+          logCollector.addObs(`Found relevant extract via fallback knowledge base.`);
           observations.push({ type: "knowledge", result: res.output });
         } else {
-          appendObservation(`All search tools exhausted without definitive summary.`);
-          observations.push({ type: "knowledge", result: `No instant extract found for "${intent.cleanSearch}".` });
+          logCollector.addObs(`Failed to locate direct extracts across active registries.`);
+          observations.push({ type: "knowledge", result: `Could not locate verified web results for "${intent.cleanSearch}".` });
         }
       }
 
-      // 4. Natural Synthesis
-      appendThought(`Sub-actions completed. Synthesizing final response.`);
-      return synthesizeResponse(observations);
-    }
+      logCollector.addThought(`Loop completed. Synthesizing output.`);
 
-    function synthesizeResponse(observations) {
       const parts = [];
       for (const obs of observations) {
         if (obs.type === "math") parts.push(`The answer is **${obs.result}**.`);
@@ -374,7 +400,6 @@
       return parts.join("\n\n");
     }
 
-    // UI Handler
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const goal = input.value.trim();
@@ -384,11 +409,14 @@
       input.value = '';
       setBusy(true);
 
+      // Create live agent response card
+      const { agentCard, logCollector, setText } = createAgentMessage();
+
       try {
-        const finalResponse = await runAgentReActLoop(goal);
-        appendMessage(finalResponse, 'agent');
+        const resultText = await runAgentReActLoop(goal, logCollector);
+        setText(resultText);
       } catch (err) {
-        appendMessage(`Agent cycle interrupted: ${err.message}`, 'agent');
+        setText(`Execution stopped: ${err.message}`);
       } finally {
         setBusy(false);
       }
@@ -397,41 +425,58 @@
     function appendMessage(text, role) {
       const msg = document.createElement('div');
       msg.className = `message ${role}`;
-      msg.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+      msg.textContent = text;
       chatBox.appendChild(msg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function appendThought(thought) {
-      const el = document.createElement('div');
-      el.className = 'thought-bubble';
-      el.textContent = `🧠 [Reasoning] ${thought}`;
-      chatBox.appendChild(el);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
+    function createAgentMessage() {
+      const card = document.createElement('div');
+      card.className = 'message agent';
 
-    function appendToolCall(details) {
-      const el = document.createElement('div');
-      el.className = 'tool-call';
-      el.textContent = `🛠️ Action: ${details}`;
-      chatBox.appendChild(el);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
+      const details = document.createElement('details');
+      details.className = 'thought-dropdown';
+      details.open = true; // Open while executing, collapses nicely
 
-    function appendRetryCall(details) {
-      const el = document.createElement('div');
-      el.className = 'tool-call retry';
-      el.textContent = `🔄 Pivot: ${details}`;
-      chatBox.appendChild(el);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
+      const summary = document.createElement('summary');
+      summary.innerHTML = '⚙️ Agent thought process & tools';
+      details.appendChild(summary);
 
-    function appendObservation(obs) {
-      const el = document.createElement('div');
-      el.className = 'tool-call result';
-      el.textContent = `👁️ Observation: ${obs}`;
-      chatBox.appendChild(el);
+      const logContainer = document.createElement('div');
+      logContainer.className = 'thought-logs';
+      details.appendChild(logContainer);
+
+      const responseEl = document.createElement('div');
+      responseEl.className = 'response-text';
+      responseEl.innerHTML = '<i>Processing...</i>';
+
+      card.appendChild(details);
+      card.appendChild(responseEl);
+      chatBox.appendChild(card);
       chatBox.scrollTop = chatBox.scrollHeight;
+
+      const logCollector = {
+        addThought: (t) => addLog(`🧠 ${t}`, 'log-item'),
+        addAction: (a) => addLog(`🛠️ Action: ${a}`, 'log-action'),
+        addRetry: (r) => addLog(`🔄 Pivot: ${r}`, 'log-retry'),
+        addObs: (o) => addLog(`👁️ Obs: ${o}`, 'log-obs'),
+      };
+
+      function addLog(text, className) {
+        const item = document.createElement('div');
+        item.className = className;
+        item.textContent = text;
+        logContainer.appendChild(item);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+
+      function setText(text) {
+        responseEl.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+        details.open = false; // Auto-collapse when done for clean look
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+
+      return { agentCard: card, logCollector, setText };
     }
 
     function setBusy(isBusy) {
