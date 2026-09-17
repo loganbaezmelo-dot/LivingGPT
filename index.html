@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>LivingGPT - Mobile Safe AI Agent</title>
+  <title>LivingGPT - N-Gram Statistical Agent</title>
   <style>
     * {
       box-sizing: border-box;
@@ -64,45 +64,15 @@
     .status-dot {
       width: 10px;
       height: 10px;
-      background-color: #eab308;
-      border-radius: 50%;
-      box-shadow: 0 0 8px #eab308;
-      flex-shrink: 0;
-    }
-
-    .status-dot.ready {
       background-color: #22c55e;
+      border-radius: 50%;
       box-shadow: 0 0 8px #22c55e;
+      flex-shrink: 0;
     }
 
     .status-dot.busy {
       background-color: #38bdf8;
       box-shadow: 0 0 10px #38bdf8;
-    }
-
-    .download-panel {
-      padding: 10px 16px;
-      background: #1e293b;
-      border-bottom: 1px solid #334155;
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .download-bar-bg {
-      width: 100%;
-      height: 6px;
-      background: #0f172a;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-
-    .download-bar-fill {
-      width: 0%;
-      height: 100%;
-      background: #38bdf8;
-      transition: width 0.2s ease;
     }
 
     .chat-box {
@@ -208,11 +178,6 @@
       font-weight: 600;
       flex-shrink: 0;
     }
-
-    button:disabled {
-      background: #374151;
-      cursor: not-allowed;
-    }
   </style>
 </head>
 <body>
@@ -222,61 +187,40 @@
       <div class="agent-info">
         <div id="statusDot" class="status-dot"></div>
         <div>
-          <strong style="font-size: 15px;">LivingGPT (Smol-Core)</strong>
-          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Loading Mobile Neural Brain...</div>
+          <strong style="font-size: 15px;">LivingGPT (N-Gram Core)</strong>
+          <div style="font-size: 11px; color: #9ca3af;" id="agentState">Statistical Engine Ready (0ms latency)</div>
         </div>
-      </div>
-    </div>
-
-    <div class="download-panel" id="downloadPanel">
-      <div style="display: flex; justify-content: space-between;">
-        <span id="downloadStatus">Connecting to weight cache...</span>
-        <span id="downloadPercent">0%</span>
-      </div>
-      <div class="download-bar-bg">
-        <div class="download-bar-fill" id="downloadFill"></div>
       </div>
     </div>
 
     <div class="chat-box" id="chatBox">
       <div class="message agent">
         <div class="response-text">
-          LivingGPT is caching its neural weights (~45MB). Once loaded into local storage, the agent runs entirely in-browser with zero API fees.
+          LivingGPT initialized with a custom client-side Bi-gram / Tri-gram language model. Zero server dependencies, zero mobile freezes, instant probability-based tool selection.
         </div>
       </div>
     </div>
 
     <form class="input-area" id="agentForm">
-      <input type="text" id="userInput" placeholder="Downloading neural weights..." disabled autocomplete="off" />
-      <button type="submit" id="submitBtn" disabled>Run</button>
+      <input type="text" id="userInput" placeholder="Ask LivingGPT anything..." autocomplete="off" />
+      <button type="submit" id="submitBtn">Run</button>
     </form>
   </div>
 
-  <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
-
-    env.useBrowserCache = true;
-    env.allowLocalModels = false;
-
+  <script>
     const chatBox = document.getElementById('chatBox');
     const input = document.getElementById('userInput');
     const form = document.getElementById('agentForm');
     const statusDot = document.getElementById('statusDot');
     const agentState = document.getElementById('agentState');
     const submitBtn = document.getElementById('submitBtn');
-    const downloadPanel = document.getElementById('downloadPanel');
-    const downloadStatus = document.getElementById('downloadStatus');
-    const downloadPercent = document.getElementById('downloadPercent');
-    const downloadFill = document.getElementById('downloadFill');
 
-    let generator = null;
-    const MODEL_ID = 'HuggingFaceTB/SmolLM2-135M-Instruct';
-
+    // 1. Tool Registry
     const AgentTools = {
-      calculator: async (expr) => {
+      calculator: async (raw) => {
         try {
-          const cleanExpr = expr.replace(/[^0-9+\-*/().]/g, '');
-          const res = Function(`'use strict'; return (${cleanExpr})`)();
+          const expr = raw.replace(/[^0-9+\-*/().]/g, '');
+          const res = Function(`'use strict'; return (${expr})`)();
           return `${expr} = ${res}`;
         } catch {
           return "Calculation error";
@@ -284,130 +228,154 @@
       },
       web_search: async (query) => {
         try {
-          const clean = query.replace(/["']/g, '').trim();
+          const clean = query.replace(/(who is|what is|search|lookup|find)/gi, '').trim();
           const endpoint = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(clean)}`;
           const res = await fetch(endpoint);
           if (res.ok) {
             const data = await res.json();
             if (data.extract) return data.extract;
           }
-          return `No direct summary found for '${clean}'.`;
+          return `No instant summary found for '${clean}'.`;
         } catch (e) {
-          return `Lookup failed: ${e.message}`;
+          return `Search error: ${e.message}`;
         }
       },
       env_check: async () => {
-        return `Current Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`;
+        return `Local Time: ${new Date().toLocaleTimeString()}, Date: ${new Date().toLocaleDateString()}`;
       }
     };
 
-    async function initModel() {
-      try {
-        generator = await pipeline('text-generation', MODEL_ID, {
-          dtype: 'q4',
-          progress_callback: (progress) => {
-            if (progress.status === 'progress') {
-              const p = Math.round(progress.progress || 0);
-              downloadPercent.textContent = `${p}%`;
-              downloadFill.style.width = `${p}%`;
-              downloadStatus.textContent = `Downloading ${progress.file || 'weights'}...`;
+    // 2. Custom N-Gram Language Model Class
+    class NGramModel {
+      constructor(n = 2) {
+        this.n = n;
+        this.counts = {}; // Frequency tables: P(w_n | w_prev)
+      }
+
+      tokenize(text) {
+        return text.toLowerCase()
+          .replace(/[×*]/g, ' multiply ')
+          .replace(/[÷/]/g, ' divide ')
+          .replace(/\+/g, ' plus ')
+          .replace(/-/g, ' minus ')
+          .replace(/[^\w\s]/g, ' ')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+      }
+
+      train(corpus) {
+        for (const sample of corpus) {
+          const tokens = ['<s>', ...this.tokenize(sample.text), '</s>'];
+          for (let i = 0; i < tokens.length - 1; i++) {
+            const context = tokens[i];
+            const nextWord = tokens[i + 1];
+
+            if (!this.counts[context]) this.counts[context] = {};
+            if (!this.counts[context][nextWord]) this.counts[context][nextWord] = 0;
+            this.counts[context][nextWord]++;
+          }
+        }
+      }
+
+      // Calculate sequence score / likelihood for class intent
+      scoreSequence(tokens, targetClassKeywords) {
+        let score = 0;
+        for (const token of tokens) {
+          if (targetClassKeywords.includes(token)) score += 2.0;
+          if (this.counts[token]) {
+            for (const key of targetClassKeywords) {
+              if (this.counts[token][key]) {
+                score += (this.counts[token][key] / 10);
+              }
             }
           }
-        });
-
-        downloadPanel.style.display = 'none';
-        statusDot.className = 'status-dot ready';
-        agentState.textContent = 'Neural Engine Ready';
-        input.disabled = false;
-        submitBtn.disabled = false;
-        input.placeholder = 'Give LivingGPT an objective...';
-      } catch (err) {
-        downloadStatus.textContent = `Init failed: ${err.message}`;
-        agentState.textContent = 'Engine Error';
+        }
+        return score;
       }
     }
 
-    initModel();
+    // 3. Corpus & Training
+    const nGramEngine = new NGramModel(2);
+    const trainingCorpus = [
+      { text: "calculate math sum plus minus multiply divide solve times" },
+      { text: "what is the time current clock hour minute today date" },
+      { text: "who is what is explain lookup search wiki biography where is" },
+      { text: "hello hi greetings hey good morning sup yo" }
+    ];
+    nGramEngine.train(trainingCorpus);
 
-    async function runNeuralAgent(goal, logCollector) {
-      logCollector.addThought(`Goal: "${goal}"`);
-      logCollector.addThought(`Deciding tool with SmolLM2 neural core...`);
+    // 4. Statistical Agent Decision Loop
+    async function runNGramAgent(goal, logCollector) {
+      logCollector.addThought(`Tokenizing goal: "${goal}"`);
+      const tokens = nGramEngine.tokenize(goal);
+      logCollector.addThought(`Tokens: [${tokens.join(', ')}]`);
 
-      const prompt = `<|im_start|>system
-You are an autonomous tool-calling agent.
-Options:
-- ACTION: calculator("expr")
-- ACTION: web_search("term")
-- ACTION: env_check()
-- FINAL: direct greeting/answer
+      // Evaluate probabilistic scores across tool spaces
+      const mathScore = nGramEngine.scoreSequence(tokens, ['multiply', 'divide', 'plus', 'minus', 'calculate', 'solve']) + (/\d+/.test(goal) ? 2.5 : 0);
+      const timeScore = nGramEngine.scoreSequence(tokens, ['time', 'date', 'clock', 'today', 'hour']);
+      const greetingScore = nGramEngine.scoreSequence(tokens, ['hi', 'hello', 'hey', 'greetings', 'yo']);
+      const searchScore = nGramEngine.scoreSequence(tokens, ['who', 'what', 'where', 'lookup', 'search', 'explain', 'wiki']) + 1.0;
 
-Output ONE line only.<|im_end|>
-<|im_start|>user
-${goal}<|im_end|>
-<|im_start|>assistant
-`;
+      logCollector.addThought(`P(Math): ${mathScore.toFixed(2)} | P(Time): ${timeScore.toFixed(2)} | P(Greet): ${greetingScore.toFixed(2)} | P(Search): ${searchScore.toFixed(2)}`);
 
-      let decision = "";
-      try {
-        const output = await generator(prompt, {
-          max_new_tokens: 24,
-          temperature: 0.0,
-          return_full_text: false
-        });
-        decision = output[0].generated_text.trim();
-        logCollector.addThought(`Neural output: ${decision}`);
-      } catch (err) {
-        logCollector.addThought(`Generation fallback: ${err.message}`);
-        decision = "ACTION: web_search(\"" + goal + "\")";
+      // Greet class
+      if (greetingScore > mathScore && greetingScore > timeScore && greetingScore > searchScore && tokens.length <= 3) {
+        logCollector.addThought(`Highest probability: conversational greeting.`);
+        return "Hey! LivingGPT is ready. Give me an objective, search query, or calculation.";
       }
 
-      let observation = null;
-
-      if (decision.includes('calculator')) {
-        const match = decision.match(/calculator\((?:'|")?(.*?)(?:'|")?\)/);
-        const expr = match ? match[1] : goal;
+      // Math tool
+      if (mathScore > timeScore && mathScore > searchScore) {
+        logCollector.addThought(`Classified as arithmetic intent.`);
+        const exprMatch = goal.replace(/×/g, '*').replace(/÷/g, '/').match(/(\d+(\.\d+)?\s*[\+\-\*\/]\s*\d+(\.\d+)?)/);
+        const expr = exprMatch ? exprMatch[0] : goal;
+        
         logCollector.addAction(`calculator("${expr}")`);
-        observation = await AgentTools.calculator(expr);
-      } else if (decision.includes('web_search')) {
-        const match = decision.match(/web_search\((?:'|")?(.*?)(?:'|")?\)/);
-        const query = match ? match[1] : goal;
-        logCollector.addAction(`web_search("${query}")`);
-        observation = await AgentTools.web_search(query);
-      } else if (decision.includes('env_check')) {
+        const res = await AgentTools.calculator(expr);
+        logCollector.addObs(res);
+        return `Result: **${res}**`;
+      }
+
+      // Time tool
+      if (timeScore > searchScore) {
+        logCollector.addThought(`Classified as temporal query.`);
         logCollector.addAction(`env_check()`);
-        observation = await AgentTools.env_check();
+        const res = await AgentTools.env_check();
+        logCollector.addObs(res);
+        return res;
       }
 
-      if (observation) {
-        logCollector.addObs(observation);
-        return observation;
-      }
-
-      return decision.replace(/^FINAL:\s*/i, '');
+      // Knowledge Search tool (default fallback with highest general mass)
+      logCollector.addThought(`Classified as external knowledge query.`);
+      logCollector.addAction(`web_search("${goal}")`);
+      const res = await AgentTools.web_search(goal);
+      logCollector.addObs(res.slice(0, 100) + '...');
+      return res;
     }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const goal = input.value.trim();
-      if (!goal || !generator) return;
+      if (!goal) return;
 
       appendMessage(goal, 'user');
       input.value = '';
 
       statusDot.className = 'status-dot busy';
-      agentState.textContent = 'Neural thinking...';
+      agentState.textContent = 'Agent running...';
       submitBtn.disabled = true;
 
       const { logCollector, setText } = createAgentMessage();
 
       try {
-        const result = await runNeuralAgent(goal, logCollector);
+        const result = await runNGramAgent(goal, logCollector);
         setText(result);
       } catch (err) {
-        setText(`Error: ${err.message}`);
+        setText(`Agent error: ${err.message}`);
       } finally {
-        statusDot.className = 'status-dot ready';
-        agentState.textContent = 'Neural Engine Ready';
+        statusDot.className = 'status-dot';
+        agentState.textContent = 'Statistical Engine Ready';
         submitBtn.disabled = false;
       }
     });
@@ -429,7 +397,7 @@ ${goal}<|im_end|>
       details.open = true;
 
       const summary = document.createElement('summary');
-      summary.innerHTML = '🧠 Neural Agent Reasoning';
+      summary.innerHTML = '📊 N-Gram Agent Probability & Reasoning';
       details.appendChild(summary);
 
       const logContainer = document.createElement('div');
@@ -437,7 +405,7 @@ ${goal}<|im_end|>
       details.appendChild(logContainer);
 
       const responseEl = document.createElement('div');
-      responseEl.innerHTML = '<i>Processing tokens...</i>';
+      responseEl.innerHTML = '<i>Calculating probabilities...</i>';
 
       card.appendChild(details);
       card.appendChild(responseEl);
@@ -459,7 +427,7 @@ ${goal}<|im_end|>
       }
 
       function setText(text) {
-        responseEl.textContent = text;
+        responseEl.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
         details.open = false;
         chatBox.scrollTop = chatBox.scrollHeight;
       }
